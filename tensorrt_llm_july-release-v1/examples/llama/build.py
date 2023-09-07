@@ -144,6 +144,14 @@ def parse_arguments():
                         type=str,
                         default=False,
                         choices=['float16', 'bfloat16', 'float32'])
+    # ----------------------------------------------------------------
+    parser.add_argument('--use_RMSnorm_plugin',
+                        nargs='?',
+                        const='float16',
+                        type=str,
+                        default=False,
+                        choices=['float16', 'float32', 'bfloat16'])
+    # ----------------------------------------------------------------
     parser.add_argument('--parallel_build', default=False, action='store_true')
     parser.add_argument('--visualize', default=False, action='store_true')
     parser.add_argument('--enable_debug_output',
@@ -287,6 +295,7 @@ def build_rank_engine(builder: Builder,
     # Module -> Network
     network = builder.create_network()
     network.trt_network.name = engine_name
+    # network._mark_output(network.)
     if args.use_gpt_attention_plugin:
         network.plugin_config.set_gpt_attention_plugin(
             dtype=args.use_gpt_attention_plugin)
@@ -295,6 +304,10 @@ def build_rank_engine(builder: Builder,
     if args.use_weight_only:
         network.plugin_config.set_weight_only_quant_matmul_plugin(
             dtype='float16')
+    # ----------------------------------------------------------------
+    if args.use_RMSnorm_plugin:
+        network.plugin_config.set_RMSnorm_plugin(dtype=args.use_RMSnorm_plugin)
+    # ----------------------------------------------------------------
     if args.world_size > 1:
         network.plugin_config.set_nccl_plugin(args.dtype)
     if args.remove_input_padding:
@@ -310,6 +323,10 @@ def build_rank_engine(builder: Builder,
                                                    args.max_output_len, True,
                                                    args.max_beam_width)
         tensorrt_llm_llama(*inputs)
+        # ----------------------------------------------------------------
+        for k, v in tensorrt_llm_llama.named_network_outputs():
+            network._mark_output(v, k, tensorrt_llm.str_dtype_to_trt(args.dtype))
+        # ----------------------------------------------------------------
         if args.enable_debug_output:
             # mark intermediate nodes' outputs
             for k, v in tensorrt_llm_llama.named_network_outputs():

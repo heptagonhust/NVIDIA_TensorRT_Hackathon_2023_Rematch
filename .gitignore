@@ -2,3 +2,8 @@
 tensorrt_llm_july-release-v1/build
 tensorrt_llm_july-release-v1/cpp/build
 tensorrt_llm_july-release-v1.tar.gz
+tensorrt_llm_july-release-v1/examples/llama/tmp/
+tensorrt_llm_july-release-v1/examples/exllama
+*.bin
+*.engine
+*.so

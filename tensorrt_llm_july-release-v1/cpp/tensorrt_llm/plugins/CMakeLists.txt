@@ -43,6 +43,8 @@ set(PLUGIN_LISTS
     ncclPlugin
     weightOnlyQuantMatmulPlugin
     lookupPlugin)
+    lookupPlugin
+    rmsnormPlugin)
 
 foreach(PLUGIN_ITER ${PLUGIN_LISTS})
   include_directories(${PLUGIN_ITER})

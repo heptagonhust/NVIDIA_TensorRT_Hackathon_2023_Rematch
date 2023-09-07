@@ -285,10 +285,10 @@ def build_rank_engine(builder: Builder,
     # Decide if we can share the embedding table between
     # the lookup OP and the logits calculation OP
     share_embedding_table = False
-    if args.use_lookup_plugin and args.model_dir is not None:
+    if args.use_lookup_plugin and args.model_dir is not None:  # 不运行
         share_embedding_table = check_embedding_share(args.model_dir)
 
-    if share_embedding_table and (not args.use_gemm_plugin):
+    if share_embedding_table and (not args.use_gemm_plugin):  # 不运行
         logger.warning(
             f'Sharing embedding tables between OPs requires using GEMM plugin. Otherwise, you might fail to see the engine size reduction.'
         )
@@ -315,9 +315,9 @@ def build_rank_engine(builder: Builder,
         multi_query_mode=args.multi_query_mode,
         use_prompt_tuning=args.max_prompt_embedding_table_size > 0,
         share_embedding_table=share_embedding_table)
-    if args.use_smooth_quant:
+    if args.use_smooth_quant:  # 不运行
         tensorrt_llm_gpt = smooth_quantize(tensorrt_llm_gpt, args.quant_mode)
-    elif args.use_weight_only:
+    elif args.use_weight_only:  # 不运行
         tensorrt_llm_gpt = weight_only_quantize(tensorrt_llm_gpt,
                                                 args.quant_mode)
 
@@ -374,7 +374,7 @@ def build_rank_engine(builder: Builder,
                 and args.max_prompt_embedding_table_size > 0
                 ), "Lookup plugin isn't compatible with prompt tuning right now"
 
-    with net_guard(network):
+    with net_guard(network):  # 只是个判断而已
         # Prepare
         network.set_named_parameters(tensorrt_llm_gpt.named_parameters())
 
@@ -388,7 +388,7 @@ def build_rank_engine(builder: Builder,
             paged_kv_cache=args.paged_kv_cache,
             tokens_per_block=args.tokens_per_block,
             prompt_embedding_table_size=args.max_prompt_embedding_table_size)
-        tensorrt_llm_gpt(*inputs)
+        tensorrt_llm_gpt(*inputs)  # 这个地方会进行一次推理
 
     engine = None
 
@@ -409,34 +409,34 @@ def build(rank, args):
     builder = Builder()
     cache = None
     apply_query_key_layer_scaling = False
-    for cur_rank in range(args.world_size):
+    for cur_rank in range(args.world_size):  # args.world_size = 1
         # skip other ranks if parallel_build is enabled
         if args.parallel_build and cur_rank != rank:
             continue
         builder_config = builder.create_builder_config(
-            name=MODEL_NAME,
-            precision=args.dtype,
-            timing_cache=args.timing_cache if cache is None else cache,
-            tensor_parallel=args.world_size,  # TP only
-            parallel_build=args.parallel_build,
-            num_layers=args.n_layer,
-            num_heads=args.n_head,
-            hidden_size=args.n_embd,
-            vocab_size=args.vocab_size,
-            hidden_act=args.hidden_act,
-            max_position_embeddings=args.n_positions,
-            apply_query_key_layer_scaling=apply_query_key_layer_scaling,
-            max_batch_size=args.max_batch_size,
-            max_input_len=args.max_input_len,
-            max_output_len=args.max_output_len,
-            int8=(args.quant_mode.has_act_and_weight_quant()
+            name=MODEL_NAME,  # gpt
+            precision=args.dtype,  # float16
+            timing_cache=args.timing_cache if cache is None else cache,  # model.cache
+            tensor_parallel=args.world_size,  # TP only 1
+            parallel_build=args.parallel_build,  # false
+            num_layers=args.n_layer,  # 12
+            num_heads=args.n_head,  # 12
+            hidden_size=args.n_embd,  # 768
+            vocab_size=args.vocab_size,  # 50257
+            hidden_act=args.hidden_act,  # 'gelu_relu'
+            max_position_embeddings=args.n_positions,  # 1024
+            apply_query_key_layer_scaling=apply_query_key_layer_scaling,  # False
+            max_batch_size=args.max_batch_size,  # 8
+            max_input_len=args.max_input_len,  # 924
+            max_output_len=args.max_output_len,  # 100
+            int8=(args.quant_mode.has_act_and_weight_quant()  # quant_mode=<QuantMode.0: 0>
                   or args.quant_mode.has_int8_kv_cache()),
-            opt_level=args.builder_opt,
-            multi_query_mode=args.multi_query_mode,
-            paged_kv_cache=args.paged_kv_cache,
-            tokens_per_block=args.tokens_per_block,
-            use_prompt_tuning=args.max_prompt_embedding_table_size > 0,
-            use_parallel_embedding=bool(args.use_lookup_plugin))
+            opt_level=args.builder_opt,  # None
+            multi_query_mode=args.multi_query_mode,  # False
+            paged_kv_cache=args.paged_kv_cache,  # False
+            tokens_per_block=args.tokens_per_block,  # 64
+            use_prompt_tuning=args.max_prompt_embedding_table_size > 0,  # False
+            use_parallel_embedding=bool(args.use_lookup_plugin))  # False
 
         engine_name = get_engine_name(MODEL_NAME, args.dtype, args.world_size,
                                       cur_rank)
@@ -449,7 +449,7 @@ def build(rank, args):
             if not args.parallel_build:
                 cache = builder_config.trt_builder_config.get_timing_cache()
 
-        serialize_engine(engine, os.path.join(args.output_dir, engine_name))
+        serialize_engine(engine, os.path.join(args.output_dir, engine_name))  # 序列化engine，将engine进行保存以便使用的时候直接读取不需要再次编译
 
     if rank == 0:
         ok = builder.save_timing_cache(
@@ -460,10 +460,10 @@ def build(rank, args):
 def run_build(args=None):
     args = parse_arguments(args)
 
-    if args.random_seed is not None:
+    if args.random_seed is not None:  # 不运行
         torch.manual_seed(args.random_seed)
 
-    logger.set_level(args.log_level)
+    logger.set_level(args.log_level)  # args.log_level = info
     tik = time.time()
     if args.parallel_build and args.world_size > 1 and \
             torch.cuda.device_count() >= args.world_size:
@@ -471,10 +471,10 @@ def run_build(args=None):
             f'Parallelly build TensorRT engines. Please make sure that all of the {args.world_size} GPUs are totally free.'
         )
         mp.spawn(build, nprocs=args.world_size, args=(args, ))
-    else:
+    else:  # 运行这里
         args.parallel_build = False
-        logger.info('Serially build TensorRT engines.')
-        build(0, args)
+        logger.info('Serially build TensorRT engines.')  
+        build(0, args)  # 构建engine 关键
 
     tok = time.time()
     t = time.strftime('%H:%M:%S', time.gmtime(tok - tik))

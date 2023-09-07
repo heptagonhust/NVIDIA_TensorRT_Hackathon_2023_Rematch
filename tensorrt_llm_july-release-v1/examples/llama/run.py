@@ -102,7 +102,8 @@ def generate(
         engine_buffer = f.read()
     decoder = tensorrt_llm.runtime.GenerationSession(model_config,
                                                      engine_buffer,
-                                                     runtime_mapping)
+                                                     runtime_mapping,
+                                                     debug_mode=True)  
 
     input_tokens = []
     if input_file is None:
@@ -144,6 +145,7 @@ def generate(
     output_ids = decoder.decode(input_ids, input_lengths, sampling_config)
     torch.cuda.synchronize()
 
+    # print(output_ids)
     if runtime_rank == 0:
         if output_csv is None and output_npy is None:
             for b in range(input_lengths.size(0)):

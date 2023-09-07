@@ -1,0 +1,11 @@
+{
+    "files.associations": {
+        "*.tcc": "cpp",
+        "streambuf": "cpp",
+        "fstream": "cpp",
+        "istream": "cpp",
+        "locale": "cpp",
+        "type_traits": "cpp",
+        "cstdint": "cpp"
+    }
+}

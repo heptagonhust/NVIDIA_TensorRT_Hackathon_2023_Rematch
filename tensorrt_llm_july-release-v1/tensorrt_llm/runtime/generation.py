@@ -886,6 +886,9 @@ class GenerationSession(object):
                     prompt_embedding_table, tasks, prompt_vocab_size)
                 self.runtime._set_shape(context, ctx_shape)
                 self.runtime._set_buffer(context, ctx_buffer)
+                # -------------------------------------------
+                debug_buffer = ctx_buffer
+                # -------------------------------------------
 
             # dynamic_decoder currently use torch's current stream, so must let TRT enqueue use same stream here
             stream = torch.cuda.current_stream().cuda_stream
@@ -894,6 +897,11 @@ class GenerationSession(object):
                 raise RuntimeError('Executing TRT engine failed!')
             if self.debug_mode:
                 torch.cuda.synchronize()
+                # -------------------------------------------
+                # if step == 0:
+                #     print(debug_buffer.keys())
+                # print(step, debug_buffer['hidden_states'])
+                # -------------------------------------------
 
             if step == 0 and scfg.num_beams > 1:
 
@@ -939,6 +947,9 @@ class GenerationSession(object):
                     prompt_vocab_size)
                 self.runtime._set_shape(next_context, next_step_shape)
                 self.runtime._set_buffer(next_context, next_step_buffer)
+                # -------------------------------------------
+                debug_buffer = next_step_buffer
+                # -------------------------------------------
 
             logits = self.buffer['logits']
             if logits is not None:

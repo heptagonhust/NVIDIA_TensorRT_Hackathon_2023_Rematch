@@ -3096,7 +3096,7 @@ def assertion(condition: Tensor, message: str = '') -> None:
     default_trtnet().add_assertion(condition.trt_tensor, message)
 
 
-def layer_norm(input: Tensor,
+def layer_norm(input: Tensor,  # (-1, -1, 1024)
                normalized_shape: Union[int, Tuple[int]],
                weight: Optional[Tensor] = None,
                bias: Optional[Tensor] = None,
@@ -3161,7 +3161,7 @@ def layer_norm(input: Tensor,
         layer.epsilon = eps
         return _create_tensor(layer.get_output(0), layer)
     else:
-        plg_creator = trt.get_plugin_registry().get_plugin_creator(
+        plg_creator = trt.get_plugin_registry().get_plugin_creator(  # <tensorrt.tensorrt.IPluginCreator object at 0x7f72f18c4570>
             'Layernorm', '1', TRT_LLM_PLUGIN_NAMESPACE)
         assert plg_creator is not None
 
@@ -3178,7 +3178,7 @@ def layer_norm(input: Tensor,
         pfc = trt.PluginFieldCollection([eps, use_diff_of_squares, pf_type])
         layernorm_plug = plg_creator.create_plugin("layernorm", pfc)
 
-        normalized_shape = [normalized_shape] if isinstance(
+        normalized_shape = [normalized_shape] if isinstance(  # (1024,)
             normalized_shape, int) else normalized_shape
         if weight is None:
             weight = constant(
@@ -3192,30 +3192,46 @@ def layer_norm(input: Tensor,
         return _create_tensor(layer.get_output(0), layer)
 
 
-def rms_norm(input: Tensor,
-             normalized_shape: Union[int, Tuple[int]],
-             weight: Optional[Tensor] = None,
+def rms_norm(input: Tensor, # (-1, -1, 4096)
+             normalized_shape: Union[int, Tuple[int]],  # normalized_shape = (4096,)
+             weight: Optional[Tensor] = None,  # (4096,)
              eps: float = 1e-06) -> Tensor:
     '''
     Add a RMS norm operation on a tensor.
 
     TODO: Document!
     '''
-    normalized_shape = [normalized_shape] if isinstance(
-        normalized_shape, int) else normalized_shape
+    normalized_shape = [normalized_shape] if isinstance(normalized_shape, int) else normalized_shape  # normalized_shape = (4096,)
 
-    dim = tuple([-i - 1 for i in range(len(normalized_shape))])
+    dim = tuple([-i - 1 for i in range(len(normalized_shape))])  #dim =  (-1,)
+    # ----------------------------------------------------------------
+    if not default_net().plugin_config.RMSnorm_plugin:  # 不加标志位运行这里
+        with precision("float32"):
+            varx = pow(input, 2.0)  # (-1, -1, 4096)
+            varx = varx.mean(dim, keepdim=True)  # (-1, -1, 1)
+            denom = varx + eps  # (-1,-1,1)
+            denom = denom.sqrt()  # (-1, -1, 1)
+            y = input / denom  # (-1, -1, 4096)
 
-    with precision("float32"):
-        varx = pow(input, 2.0)
-        varx = varx.mean(dim, keepdim=True)
-        denom = varx + eps
-        denom = denom.sqrt()
-        y = input / denom
+        if weight is not None:
+            y = y * weight  # (-1, -1, 4096)
+    else:  # 加标志位运行这里
+            plg_creator = trt.get_plugin_registry().get_plugin_creator('Rmsnorm', '1', TRT_LLM_PLUGIN_NAMESPACE)
+            assert plg_creator is not None
 
-    if weight is not None:
-        y = y * weight
+            eps = trt.PluginField("eps", np.array(eps, dtype=np.float32),
+                        trt.PluginFieldType.FLOAT32)
+            p_dtype = default_net().plugin_config.RMSnorm_plugin
+            pfc = trt.PluginFieldCollection([eps])
+            rmsnorm_plug = plg_creator.create_plugin("rmsnorm", pfc)
+            
+            if weight is None:
+                weight = constant(np.ones(normalized_shape, dtype=str_dtype_to_np(p_dtype)))
 
+            plug_inputs = [input.trt_tensor, weight.trt_tensor]
+            layer = default_trtnet().add_plugin_v2(plug_inputs, rmsnorm_plug)
+            y =  _create_tensor(layer.get_output(0), layer)
+    # ----------------------------------------------------------------
     return y
 
 

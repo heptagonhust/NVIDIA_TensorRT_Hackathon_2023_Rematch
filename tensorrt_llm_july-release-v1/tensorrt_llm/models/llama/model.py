@@ -84,7 +84,7 @@ class LLaMADecoderLayer(Module):
         hidden_states = residual + attention_output.data
 
         residual = hidden_states
-        hidden_states = self.post_layernorm(hidden_states)
+        hidden_states = self.post_layernorm(hidden_states)  # (-1, -1, 4096)
 
         hidden_states = self.mlp(hidden_states)
 
@@ -114,7 +114,7 @@ class LLaMAModel(Module):
                  multi_query_mode=False):
         super().__init__()
         self.vocab_embedding = Embedding(vocab_size, hidden_size, dtype=dtype)
-
+        self.dtype = dtype
         self.layers = ModuleList([
             LLaMADecoderLayer(layer_id=i,
                               hidden_size=hidden_size,
@@ -174,7 +174,10 @@ class LLaMAModel(Module):
                 hidden_states = hidden_states[0]
 
         hidden_states = self.ln_f(hidden_states.data)
-
+        # register as model output
+        # ------------------------------------------------------
+        self.register_network_output("hidden_states",hidden_states)
+        # ------------------------------------------------------
         if use_cache:
             return (hidden_states, tuple(presents))
         return hidden_states
