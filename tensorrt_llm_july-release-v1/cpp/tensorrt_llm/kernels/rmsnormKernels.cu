@@ -88,7 +88,6 @@ __global__ void generalRmsNorm(const T* input, const T* gamma, T* normed_output,
         {
             shmem[i] = val;
         }
-
         const float_packed_t val_f = cuda_cast<float_packed_t>(val);
         // local_sum += cuda_sum<float>(val_f);
         local_var_sum += cuda_sum<float>(val_f * val_f);
@@ -123,7 +122,6 @@ __global__ void generalRmsNorm(const T* input, const T* gamma, T* normed_output,
         const int index = bidx * n_elems + i;
         const float_packed_t val_f = cuda_cast<float_packed_t>(use_shmem ? shmem[i] : input[index]);
         const T val = cuda_cast<T>(compute_rmsnorm(val_f, s_variance, gamma, i));
-
         if (with_per_token_scaling)
         {
             amax = cuda_max(cuda_max<T_scalar, T>(cuda_abs(val)), amax);
@@ -181,7 +179,11 @@ void dispatch_rmsnorm_type_square_method(const T* input, const T* gamma, T* norm
     }
     generalRmsNorm<T><<<grid, block, shmem_size, stream>>>(input, gamma, normed_output,
         eps, tokens, hidden_dim, scale_orig_quant_per_tensor, scale_orig_quant_per_token, normed_output_quant, true);
-}
+cudaError_t err = cudaGetLastError();
+if (err != cudaSuccess) {
+    printf("CUDA error: %s\n", cudaGetErrorString(err));
+    exit(-1);
+}}
 
 template <typename T>
 void dispatch_rmsnorm_type(const T* input, const T* gamma, T* normed_output, const float eps,
@@ -191,7 +193,11 @@ void dispatch_rmsnorm_type(const T* input, const T* gamma, T* normed_output, con
         dispatch_rmsnorm_type_square_method(input, gamma, normed_output, eps, tokens, hidden_dim,
             scale_orig_quant_per_tensor, scale_orig_quant_per_token, normed_output_quant, grid, block, shmem_size,
             stream);
-}
+cudaError_t err = cudaGetLastError();
+if (err != cudaSuccess) {
+    printf("CUDA error: %s\n", cudaGetErrorString(err));
+    exit(-1);
+}}
 
 template <typename T>
 void invokeGeneralRmsNorm(T* out, const T* input, const T* gamma, const float eps, const int tokens,
@@ -199,7 +205,7 @@ void invokeGeneralRmsNorm(T* out, const T* input, const T* gamma, const float ep
     int8_t* normed_output_quant)
 {
     dim3 grid(tokens);
-    dim3 block(min(hidden_dim, 4096));
+    dim3 block(min(hidden_dim, 1024));
     // Make sure block.x is multiple of 32 for warp shuffle to work
     block.x = 32 * ((block.x + 31) / 32);
 
@@ -224,7 +230,11 @@ void invokeGeneralRmsNorm(T* out, const T* input, const T* gamma, const float ep
         dispatch_rmsnorm_type(input, gamma, out, eps, tokens, hidden_dim, scale, dynamic_scale,
             normed_output_quant, grid, block, shmem_size, stream);
     }
-}
+cudaError_t err = cudaGetLastError();
+if (err != cudaSuccess) {
+    printf("CUDA error: %s\n", cudaGetErrorString(err));
+    exit(-1);
+}}
 
 #define INSTANTIATE_GENERAL_RMSNORM(T)                                                                               \
     template void invokeGeneralRmsNorm(T* out, const T* input, const T* gamma, const float eps,       \

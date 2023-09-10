@@ -42,7 +42,6 @@ set(PLUGIN_LISTS
     layernormQuantizationPlugin
     ncclPlugin
     weightOnlyQuantMatmulPlugin
-    lookupPlugin)
     lookupPlugin
     rmsnormPlugin)
 

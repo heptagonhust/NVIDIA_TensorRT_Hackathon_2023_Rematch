@@ -1,0 +1,56 @@
+{
+    // 使用 IntelliSense 了解相关属性。 
+    // 悬停以查看现有属性的描述。
+    // 欲了解更多信息，请访问: https://go.microsoft.com/fwlink/?linkid=830387
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "Python: gpt_build.py",
+            "type": "python",
+            "request": "launch",
+            "program": "${file}",
+            "console": "integratedTerminal",
+            "justMyCode": false,
+            "args": [                
+            "--model_dir","./c-model/gpt2/1-gpu",
+            "--use_gpt_attention_plugin",
+            "--use_layernorm_plugin"
+            ],
+            "cwd": "/root/NVIDIA_TensorRT_Hackathon_2023_Rematch/tensorrt_llm_july-release-v1/examples/gpt"
+        },
+        {
+            "name": "Python: run.py",
+            "type": "python",
+            "request": "launch",
+            "program": "${file}",
+            "console": "integratedTerminal",
+            "justMyCode": false,
+            "args": [
+                "--max_output_len",
+                "50",
+                "--tokenizer_dir",
+                "./tmp/llama/7B/",
+                "--engine_dir",
+                "./tmp/llama/7B/trt_engines/fp16/1-gpu/"
+            ],
+            "cwd": "/root/NVIDIA_TensorRT_Hackathon_2023_Rematch/tensorrt_llm_july-release-v1/examples/llama"
+        },
+        {
+            "name": "Python: llama_build.py",
+            "type": "python",
+            "request": "launch",
+            "program": "${file}",
+            "console": "integratedTerminal",
+            "justMyCode": false,
+            "args": [
+                "--model_dir","./tmp/llama/7B/",
+                "--dtype","float16",
+                "--use_gpt_attention_plugin","float16",
+                "--use_gemm_plugin","float16",
+                "--output_dir","./tmp/llama/7B/trt_engines/fp16/1-gpu/",
+                "--use_RMSnorm_plugin","float32"
+            ],
+            "cwd": "/root/NVIDIA_TensorRT_Hackathon_2023_Rematch/tensorrt_llm_july-release-v1/examples/llama"
+        }
+    ]
+}

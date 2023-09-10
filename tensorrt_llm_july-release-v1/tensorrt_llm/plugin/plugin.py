@@ -140,6 +140,6 @@ class PluginConfig(object):
         self.lookup_plugin = dtype
         return self
     
-    def set_RMSnorm_plugin(self, dtype='float16'):
+    def set_RMSnorm_plugin(self, dtype='float32'):
         self.RMSnorm_plugin = dtype
         return self

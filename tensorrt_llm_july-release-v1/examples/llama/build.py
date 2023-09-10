@@ -147,7 +147,7 @@ def parse_arguments():
     # ----------------------------------------------------------------
     parser.add_argument('--use_RMSnorm_plugin',
                         nargs='?',
-                        const='float16',
+                        const='float32',
                         type=str,
                         default=False,
                         choices=['float16', 'float32', 'bfloat16'])
