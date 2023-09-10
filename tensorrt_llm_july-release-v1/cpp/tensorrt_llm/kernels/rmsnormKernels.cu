@@ -26,9 +26,9 @@ namespace kernels
 {
 
 template <typename Tf, typename T>
-__inline__ __device__ Tf compute_layernorm(Tf val, float s_mean, float s_variance, const T* gamma, int i)
+__inline__ __device__ Tf compute_rmsnorm(Tf val, float s_variance, const T* gamma, int i)
 {
-    Tf ret = (val - s_mean) * s_variance * cuda_cast<Tf>(gamma[i]);
+    Tf ret = (val) * s_variance * cuda_cast<Tf>(gamma[i]);
     // if (beta != nullptr)
     // {
     //     ret = ret + cuda_cast<Tf>(beta[i]);
@@ -58,7 +58,7 @@ __inline__ __device__ Tf compute_layernorm(Tf val, float s_mean, float s_varianc
  *           normed_output_quant.
  */
 template <typename T>
-__global__ void generalLayerNorm(const T* input, const T* gamma, T* normed_output, const float eps,
+__global__ void generalRmsNorm(const T* input, const T* gamma, T* normed_output, const float eps,
     int tokens, int hidden_dim, const float* scale_orig_quant_per_tensor, float* scale_orig_quant_per_token,
     int8_t* normed_output_quant, bool use_shmem)
 {
@@ -69,13 +69,13 @@ __global__ void generalLayerNorm(const T* input, const T* gamma, T* normed_outpu
 
     extern __shared__ __align__(sizeof(float)) char _shmem[];
     T* shmem = reinterpret_cast<T*>(_shmem);
-    __shared__ float s_mean;
+    // __shared__ float s_mean;
     __shared__ float s_variance;
 
     const int tidx = threadIdx.x;
     const int bidx = blockIdx.x;
 
-    float mean = 0.0f;
+    // float mean = 0.0f;
     float variance = 0.0f;
     float local_sum = 0.0f;
     float local_var_sum = 0.0f;
@@ -90,19 +90,24 @@ __global__ void generalLayerNorm(const T* input, const T* gamma, T* normed_outpu
         }
 
         const float_packed_t val_f = cuda_cast<float_packed_t>(val);
-        local_sum += cuda_sum<float>(val_f);
+        // local_sum += cuda_sum<float>(val_f);
+        local_var_sum += cuda_sum<float>(val_f * val_f);
     }
 
-    float packed[2] = {local_sum, local_var_sum};
-    blockReduceSumV2<float, 2>(packed);
-    mean = packed[0];
-    variance = packed[1];
-
+    // float packed[1] = {local_var_sum};
+    // blockReduceSumV2<float, 2>(packed);
+    // variance = packed[0];
+    variance = blockReduceSum(local_var_sum);
 
     if (threadIdx.x == 0)
     {
-        mean = mean / hidden_dim;
-        s_mean = mean;
+        // mean = mean / hidden_dim;
+        // s_mean = mean;
+        // if (USE_DIFF_OF_SQUARES)  // 这里运行
+        // {
+        variance = (variance / hidden_dim); // Var[x] = E[x²] - E[x]²
+        s_variance = rsqrtf(variance + eps);
+        // }
     }
     __syncthreads();
 
@@ -117,7 +122,7 @@ __global__ void generalLayerNorm(const T* input, const T* gamma, T* normed_outpu
     {
         const int index = bidx * n_elems + i;
         const float_packed_t val_f = cuda_cast<float_packed_t>(use_shmem ? shmem[i] : input[index]);
-        const T val = cuda_cast<T>(compute_layernorm(val_f, s_mean, s_variance, gamma, i));
+        const T val = cuda_cast<T>(compute_rmsnorm(val_f, s_variance, gamma, i));
 
         if (with_per_token_scaling)
         {
@@ -148,7 +153,7 @@ __global__ void generalLayerNorm(const T* input, const T* gamma, T* normed_outpu
             float_packed_t val_f = cuda_cast<float_packed_t>(use_shmem ? shmem[i] : input[index]);
             if (!use_shmem)
             {
-                val_f = compute_layernorm(val_f, s_mean, s_variance, gamma, i);
+                val_f = compute_rmsnorm(val_f, s_variance, gamma, i);
             }
 
             reinterpret_cast<int8_packed_t*>(normed_output_quant)[index]
@@ -162,7 +167,7 @@ __global__ void generalLayerNorm(const T* input, const T* gamma, T* normed_outpu
 }
 
 template < typename T>
-void dispatch_layernorm_type_square_method(const T* input, const T* gamma, T* normed_output,
+void dispatch_rmsnorm_type_square_method(const T* input, const T* gamma, T* normed_output,
     const float eps, int tokens, int hidden_dim, const float* scale_orig_quant_per_tensor,
     float* scale_orig_quant_per_token, int8_t* normed_output_quant, const dim3 grid, const dim3 block,
     const size_t shmem_size, cudaStream_t stream)
@@ -171,19 +176,19 @@ void dispatch_layernorm_type_square_method(const T* input, const T* gamma, T* no
     if (shmem_size >= (48 << 10))
     {
         cudaError_t ret = cudaFuncSetAttribute(
-            generalLayerNorm<T>, cudaFuncAttributeMaxDynamicSharedMemorySize, shmem_size);
+            generalRmsNorm<T>, cudaFuncAttributeMaxDynamicSharedMemorySize, shmem_size);
         use_shmem = ret == cudaSuccess;
     }
-    generalLayerNorm<T><<<grid, block, shmem_size, stream>>>(input, gamma, normed_output,
+    generalRmsNorm<T><<<grid, block, shmem_size, stream>>>(input, gamma, normed_output,
         eps, tokens, hidden_dim, scale_orig_quant_per_tensor, scale_orig_quant_per_token, normed_output_quant, true);
 }
 
 template <typename T>
-void dispatch_layernorm_type(const T* input, const T* gamma, T* normed_output, const float eps,
+void dispatch_rmsnorm_type(const T* input, const T* gamma, T* normed_output, const float eps,
     int tokens, int hidden_dim, const float* scale_orig_quant_per_tensor, float* scale_orig_quant_per_token,
     int8_t* normed_output_quant, const dim3 grid, const dim3 block, const size_t shmem_size, cudaStream_t stream)
 {
-        dispatch_layernorm_type_square_method(input, gamma, normed_output, eps, tokens, hidden_dim,
+        dispatch_rmsnorm_type_square_method(input, gamma, normed_output, eps, tokens, hidden_dim,
             scale_orig_quant_per_tensor, scale_orig_quant_per_token, normed_output_quant, grid, block, shmem_size,
             stream);
 }
@@ -193,32 +198,32 @@ void invokeGeneralRmsNorm(T* out, const T* input, const T* gamma, const float ep
     const int hidden_dim, cudaStream_t stream, const float* scale, float* dynamic_scale,
     int8_t* normed_output_quant)
 {
-//     dim3 grid(tokens);
-//     dim3 block(min(hidden_dim, 1024));
-//     // Make sure block.x is multiple of 32 for warp shuffle to work
-//     block.x = 32 * ((block.x + 31) / 32);
+    dim3 grid(tokens);
+    dim3 block(min(hidden_dim, 4096));
+    // Make sure block.x is multiple of 32 for warp shuffle to work
+    block.x = 32 * ((block.x + 31) / 32);
 
-//     constexpr size_t vec_size = 2;
-//     const size_t shmem_size = hidden_dim * sizeof(T);
-//     const bool use_vec_type = (hidden_dim % vec_size == 0)
-//         && (std::is_same<T, half>::value
-// #ifdef ENABLE_BF16
-//             // || std::is_same<T, __nv_bfloat16>::value
-// #endif
-//         );
+    constexpr size_t vec_size = 2;
+    const size_t shmem_size = hidden_dim * sizeof(T);
+    const bool use_vec_type = (hidden_dim % vec_size == 0)
+        && (std::is_same<T, half>::value
+#ifdef ENABLE_BF16
+            || std::is_same<T, __nv_bfloat16>::value
+#endif
+        );
 
-//     if (use_vec_type)
-//     {
-//         using Tp = typename packed_as<T, vec_size>::type;
-//         dispatch_layernorm_type(reinterpret_cast<const Tp*>(input), reinterpret_cast<const Tp*>(gamma),
-//             reinterpret_cast<Tp*>(out), eps, tokens, hidden_dim, scale,
-//             dynamic_scale, normed_output_quant, grid, block, shmem_size, stream);
-//     }
-//     else
-//     {
-//         dispatch_layernorm_type(input, gamma, out, eps, tokens, hidden_dim, scale, dynamic_scale,
-//             normed_output_quant, grid, block, shmem_size, stream);
-//     }
+    if (use_vec_type)
+    {
+        using Tp = typename packed_as<T, vec_size>::type;
+        dispatch_rmsnorm_type(reinterpret_cast<const Tp*>(input), reinterpret_cast<const Tp*>(gamma),
+            reinterpret_cast<Tp*>(out), eps, tokens, hidden_dim, scale,
+            dynamic_scale, normed_output_quant, grid, block, shmem_size, stream);
+    }
+    else
+    {
+        dispatch_rmsnorm_type(input, gamma, out, eps, tokens, hidden_dim, scale, dynamic_scale,
+            normed_output_quant, grid, block, shmem_size, stream);
+    }
 }
 
 #define INSTANTIATE_GENERAL_RMSNORM(T)                                                                               \
@@ -230,7 +235,7 @@ INSTANTIATE_GENERAL_RMSNORM(float);
 INSTANTIATE_GENERAL_RMSNORM(half);
 
 #ifdef ENABLE_BF16
-// INSTANTIATE_GENERAL_LAYERNORM(__nv_bfloat16);
+INSTANTIATE_GENERAL_RMSNORM(__nv_bfloat16);
 #endif
 
 } // namespace kernels

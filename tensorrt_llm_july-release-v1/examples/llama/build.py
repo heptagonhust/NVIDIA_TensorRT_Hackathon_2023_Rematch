@@ -324,8 +324,8 @@ def build_rank_engine(builder: Builder,
                                                    args.max_beam_width)
         tensorrt_llm_llama(*inputs)
         # ----------------------------------------------------------------
-        for k, v in tensorrt_llm_llama.named_network_outputs():
-            network._mark_output(v, k, tensorrt_llm.str_dtype_to_trt(args.dtype))
+        # for k, v in tensorrt_llm_llama.named_network_outputs():
+        #     network._mark_output(v, k, tensorrt_llm.str_dtype_to_trt(args.dtype))
         # ----------------------------------------------------------------
         if args.enable_debug_output:
             # mark intermediate nodes' outputs

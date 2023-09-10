@@ -28,8 +28,9 @@ static const char* RMSNORM_PLUGIN_NAME{"Rmsnorm"};
 PluginFieldCollection RmsnormPluginCreator::mFC{};
 std::vector<PluginField> RmsnormPluginCreator::mPluginAttributes;
 
-RmsnormPlugin::RmsnormPlugin(float eps)
+RmsnormPlugin::RmsnormPlugin(float eps, nvinfer1::DataType type)
     : mEps(eps)
+    , mType(type)
 {
 }
 
@@ -38,13 +39,14 @@ RmsnormPlugin::RmsnormPlugin(const void* data, size_t length)
 {
     const char *d = reinterpret_cast<const char*>(data), *a = d;
     read(d, mEps);
+    read(d, mType);
     PLUGIN_ASSERT(d == a + length);
 }
 
 // IPluginV2DynamicExt Methods
 nvinfer1::IPluginV2DynamicExt* RmsnormPlugin::clone() const noexcept // 将这个plugin对象克隆一份给tensorrt的builder、network或者engine。
 {
-    auto* plugin = new RmsnormPlugin(mEps);  // 将要clone的plugin的权重和参数传递给这个构造函数
+    auto* plugin = new RmsnormPlugin(mEps, mType);  // 将要clone的plugin的权重和参数传递给这个构造函数
     plugin->setPluginNamespace(mNamespace.c_str());
     return plugin;  // clone成员函数主要用于传递不变的权重和参数，将plugin复制n多份，从而可以被不同engine或者builder或者network使用
 }
@@ -58,8 +60,8 @@ nvinfer1::DimsExprs RmsnormPlugin::getOutputDimensions(
 bool RmsnormPlugin::supportsFormatCombination(
     int pos, const nvinfer1::PluginTensorDesc* inOut, int nbInputs, int nbOutputs) noexcept
 {
-    // PLUGIN_ASSERT(0 <= pos && pos < 5);
-    // return (inOut[pos].type == mType) && (inOut[pos].format == TensorFormat::kLINEAR);
+    PLUGIN_ASSERT(0 <= pos && pos < 5);
+    return (inOut[pos].type == mType) && (inOut[pos].format == TensorFormat::kLINEAR);
     return true;
 }
 
@@ -90,27 +92,28 @@ int RmsnormPlugin::enqueue(const nvinfer1::PluginTensorDesc* inputDesc, const nv
         m *= inputDesc[0].dims.d[i];
     }
     const int n = inputDesc[1].dims.d[0];
-
-    const half* input = reinterpret_cast<const half*>(inputs[0]);
-    const half* weight = reinterpret_cast<const half*>(inputs[1]);
-    half* output = reinterpret_cast<half*>(outputs[0]);
-    invokeGeneralRmsNorm(output, input, weight, mEps, m, n, stream);
-    // else if (mType == DataType::kFLOAT)
-    // {
-    //     const float* input = reinterpret_cast<const float*>(inputs[0]);
-    //     const float* weight = reinterpret_cast<const float*>(inputs[1]);
-    //     const float* bias = reinterpret_cast<const float*>(inputs[2]);
-    //     float* output = reinterpret_cast<float*>(outputs[0]);
-    //     invokeGeneralLayerNorm(output, input, weight, bias, mEps, m, n, stream, mUseDiffOfSquares);
-    // }
+    if (mType == DataType::kHALF)       // 运行这里
+    {
+        const half* input = reinterpret_cast<const half*>(inputs[0]);
+        const half* weight = reinterpret_cast<const half*>(inputs[1]);
+        half* output = reinterpret_cast<half*>(outputs[0]);
+        invokeGeneralRmsNorm(output, input, weight, mEps, m, n, stream);
+    }
+    else if (mType == DataType::kFLOAT)
+    {
+        const float* input = reinterpret_cast<const float*>(inputs[0]);
+        const float* weight = reinterpret_cast<const float*>(inputs[1]);
+        float* output = reinterpret_cast<float*>(outputs[0]);
+        invokeGeneralRmsNorm(output, input, weight, mEps, m, n, stream);
+    }
 #ifdef ENABLE_BF16
-    // if (mType == DataType::kBF16)
-    // {
-    // const __nv_bfloat16* input = reinterpret_cast<const __nv_bfloat16*>(inputs[0]);
-    // const __nv_bfloat16* weight = reinterpret_cast<const __nv_bfloat16*>(inputs[1]);
-    // __nv_bfloat16* output = reinterpret_cast<__nv_bfloat16*>(outputs[0]);
-    // invokeGeneralRmsNorm(output, input, weight, mEps, m, n, stream);
-    // }
+    if (mType == DataType::kBF16)
+    {
+    const __nv_bfloat16* input = reinterpret_cast<const __nv_bfloat16*>(inputs[0]);
+    const __nv_bfloat16* weight = reinterpret_cast<const __nv_bfloat16*>(inputs[1]);
+    __nv_bfloat16* output = reinterpret_cast<__nv_bfloat16*>(outputs[0]);
+    invokeGeneralRmsNorm(output, input, weight, mEps, m, n, stream);
+    }
 #endif
 
     return 0;
@@ -150,13 +153,14 @@ void RmsnormPlugin::terminate() noexcept {}
 
 size_t RmsnormPlugin::getSerializationSize() const noexcept  // 返回序列化时需要写多少个字节到buffer中。
 {
-    return sizeof(mEps);
+    return sizeof(mEps) + sizeof(mType);
 }
 
 void RmsnormPlugin::serialize(void* buffer) const noexcept
 {
     char *d = static_cast<char*>(buffer), *a = d;
     write(d, mEps);
+    write(d, mType);
     assert(d == a + getSerializationSize());
 }
 
@@ -183,6 +187,7 @@ RmsnormPluginCreator::RmsnormPluginCreator()
     // Fill PluginFieldCollection with PluginField arguments metadata
     mPluginAttributes.clear();
     mPluginAttributes.emplace_back(PluginField("eps", nullptr, PluginFieldType::kFLOAT32, 1e-5f));
+    mPluginAttributes.emplace_back(PluginField("type_id", nullptr, PluginFieldType::kINT32, 1));
     mFC.nbFields = mPluginAttributes.size();
     mFC.fields = mPluginAttributes.data();
 }
@@ -207,7 +212,7 @@ IPluginV2* RmsnormPluginCreator::createPlugin(const char* name, const PluginFiel
     const PluginField* fields = fc->fields;
     float eps;
     // bool useDiffOfSquares;
-    // nvinfer1::DataType type;
+    nvinfer1::DataType type;
     // Read configurations from each fields
     for (int i = 0; i < fc->nbFields; ++i)
     {
@@ -222,15 +227,15 @@ IPluginV2* RmsnormPluginCreator::createPlugin(const char* name, const PluginFiel
         //     PLUGIN_ASSERT(fields[i].type == PluginFieldType::kINT32);
         //     useDiffOfSquares = static_cast<bool>(*(static_cast<const bool*>(fields[i].data)));
         // }
-        // else if (!strcmp(attrName, "type_id"))
-        // {
-        //     PLUGIN_ASSERT(fields[i].type == PluginFieldType::kINT32);
-        //     type = static_cast<nvinfer1::DataType>(*(static_cast<const nvinfer1::DataType*>(fields[i].data)));
-        // }
+        else if (!strcmp(attrName, "type_id"))
+        {
+            PLUGIN_ASSERT(fields[i].type == PluginFieldType::kINT32);
+            type = static_cast<nvinfer1::DataType>(*(static_cast<const nvinfer1::DataType*>(fields[i].data)));
+        }
     }
     try
     {
-        auto* obj = new RmsnormPlugin(eps);
+        auto* obj = new RmsnormPlugin(eps,type);
         obj->setPluginNamespace(mNamespace.c_str());
         return obj;
     }

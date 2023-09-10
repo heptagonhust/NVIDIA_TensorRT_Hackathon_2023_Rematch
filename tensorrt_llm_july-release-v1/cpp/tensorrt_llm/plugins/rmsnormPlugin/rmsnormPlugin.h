@@ -32,7 +32,7 @@ namespace plugin
 class RmsnormPlugin : public IPluginV2DynamicExt
 {
 public:
-    RmsnormPlugin(float eps);
+    RmsnormPlugin(float eps,nvinfer1::DataType type);
 
     RmsnormPlugin(const void* data, size_t length);
 
@@ -69,8 +69,9 @@ public:
 
 private:
     float mEps;
+    nvinfer1::DataType mType;
 
-    const std::string mLayerName;
+    const std::string mRmsName;
     std::string mNamespace;
 };
 

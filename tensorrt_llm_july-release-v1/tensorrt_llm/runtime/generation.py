@@ -734,7 +734,7 @@ class GenerationSession(object):
                 'last_token_ids': last_token_ids
             }
 
-    def _prepare_generation_inputs(self, batch_size, input_lengths,
+    def _prepare_generation_inputs(self, batch_size, input_lengths,  #  报错
                                    use_gpt_attention_plugin,
                                    remove_input_padding, **kwargs):
         last_token_ids = torch.ones_like(input_lengths)
@@ -887,7 +887,7 @@ class GenerationSession(object):
                 self.runtime._set_shape(context, ctx_shape)
                 self.runtime._set_buffer(context, ctx_buffer)
                 # -------------------------------------------
-                debug_buffer = ctx_buffer
+                # debug_buffer = ctx_buffer
                 # -------------------------------------------
 
             # dynamic_decoder currently use torch's current stream, so must let TRT enqueue use same stream here
@@ -948,7 +948,7 @@ class GenerationSession(object):
                 self.runtime._set_shape(next_context, next_step_shape)
                 self.runtime._set_buffer(next_context, next_step_buffer)
                 # -------------------------------------------
-                debug_buffer = next_step_buffer
+                # debug_buffer = next_step_buffer
                 # -------------------------------------------
 
             logits = self.buffer['logits']

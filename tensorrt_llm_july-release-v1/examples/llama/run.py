@@ -12,7 +12,6 @@ import tensorrt_llm
 from tensorrt_llm.runtime import ModelConfig, SamplingConfig
 
 from build import get_engine_name  # isort:skip
-
 EOS_TOKEN = 2
 PAD_TOKEN = 2
 
@@ -102,8 +101,8 @@ def generate(
         engine_buffer = f.read()
     decoder = tensorrt_llm.runtime.GenerationSession(model_config,
                                                      engine_buffer,
-                                                     runtime_mapping,
-                                                     debug_mode=True)  
+                                                     runtime_mapping)
+                                                    #  debug_mode=True)  
 
     input_tokens = []
     if input_file is None:

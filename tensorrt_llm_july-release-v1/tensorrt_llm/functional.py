@@ -3216,21 +3216,22 @@ def rms_norm(input: Tensor, # (-1, -1, 4096)
         if weight is not None:
             y = y * weight  # (-1, -1, 4096)
     else:  # 加标志位运行这里
-            plg_creator = trt.get_plugin_registry().get_plugin_creator('Rmsnorm', '1', TRT_LLM_PLUGIN_NAMESPACE)
-            assert plg_creator is not None
+        plg_creator = trt.get_plugin_registry().get_plugin_creator('Rmsnorm', '1', TRT_LLM_PLUGIN_NAMESPACE)
+        assert plg_creator is not None
 
-            eps = trt.PluginField("eps", np.array(eps, dtype=np.float32),
-                        trt.PluginFieldType.FLOAT32)
-            p_dtype = default_net().plugin_config.RMSnorm_plugin
-            pfc = trt.PluginFieldCollection([eps])
-            rmsnorm_plug = plg_creator.create_plugin("rmsnorm", pfc)
-            
-            if weight is None:
-                weight = constant(np.ones(normalized_shape, dtype=str_dtype_to_np(p_dtype)))
+        eps = trt.PluginField("eps", np.array(eps, dtype=np.float32),
+                    trt.PluginFieldType.FLOAT32)
+        p_dtype = default_net().plugin_config.RMSnorm_plugin
+        pf_type = trt.PluginField("type_id", np.array([int(str_dtype_to_trt(p_dtype))], np.int32),trt.PluginFieldType.INT32)
+        pfc = trt.PluginFieldCollection([eps, pf_type])
+        rmsnorm_plug = plg_creator.create_plugin("rmsnorm", pfc)
+        
+        if weight is None:
+            weight = constant(np.ones(normalized_shape, dtype=str_dtype_to_np(p_dtype)))
 
-            plug_inputs = [input.trt_tensor, weight.trt_tensor]
-            layer = default_trtnet().add_plugin_v2(plug_inputs, rmsnorm_plug)
-            y =  _create_tensor(layer.get_output(0), layer)
+        plug_inputs = [input.trt_tensor, weight.trt_tensor]
+        layer = default_trtnet().add_plugin_v2(plug_inputs, rmsnorm_plug)
+        y =  _create_tensor(layer.get_output(0), layer)
     # ----------------------------------------------------------------
     return y
 

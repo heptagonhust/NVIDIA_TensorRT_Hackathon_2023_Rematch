@@ -119,7 +119,7 @@ class PluginConfig(object):
     def set_layernorm_quantization_plugin(self, dtype='float16'):
         self.layernorm_quantization_plugin = dtype
         return self
-
+    
     def set_weight_only_quant_matmul_plugin(self, dtype='float16'):
         self.weight_only_quant_matmul_plugin = dtype
         return self

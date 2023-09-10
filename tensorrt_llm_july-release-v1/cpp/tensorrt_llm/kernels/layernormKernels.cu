@@ -57,34 +57,36 @@ __inline__ __device__ Tf compute_layernorm(Tf val, float s_mean, float s_varianc
  *           amax per row. A final pass scales to int8 accordingly, and writes output to
  *           normed_output_quant.
  */
-template <typename T, bool USE_DIFF_OF_SQUARES = false>
+template <typename T, bool USE_DIFF_OF_SQUARES = false> // 就这里一个核函数
 __global__ void generalLayerNorm(const T* input, const T* gamma, const T* beta, T* normed_output, const float eps,
     int tokens, int hidden_dim, const float* scale_orig_quant_per_tensor, float* scale_orig_quant_per_token,
     int8_t* normed_output_quant, bool use_shmem)
 {
     constexpr auto num_elems_T = num_elems<T>::value;
-    using int8_packed_t = typename packed_as<int8_t, num_elems_T>::type;
+    using int8_packed_t = typename packed_as<int8_t, num_elems_T>::type;  // 这个不用太关心
     using float_packed_t = typename packed_as<float, num_elems_T>::type;
-    using T_scalar = typename packed_as<T, 1>::type;
+    using T_scalar = typename packed_as<T, 1>::type;  // eps的值
 
     extern __shared__ __align__(sizeof(float)) char _shmem[];
     T* shmem = reinterpret_cast<T*>(_shmem);
     __shared__ float s_mean;
     __shared__ float s_variance;
 
-    const int tidx = threadIdx.x;
-    const int bidx = blockIdx.x;
+    const int tidx = threadIdx.x;  // threadIdx.x 范围是0到1024
+    const int bidx = blockIdx.x;  // blockIdx.x 范围是0到12
 
     float mean = 0.0f;
     float variance = 0.0f;
     float local_sum = 0.0f;
     float local_var_sum = 0.0f;
-
-    const int n_elems = hidden_dim / num_elems_T;
-    for (int i = tidx; i < n_elems; i += blockDim.x)
+    //printf("%d\t%d\t",hidden_dim,num_elems_T); // 1024 2
+    const int n_elems = hidden_dim / num_elems_T;  // 512
+    // printf("%d\t",blockDim.x); // 1024
+    for (int i = tidx; i < n_elems; i += blockDim.x)  // blockDim.x = 1024
     {
+        printf("[?]%d\t",(i-tidx)/blockDim.x);
         const T val = input[bidx * n_elems + i];
-        if (use_shmem)
+        if (use_shmem)  // 这个地方是true会运行
         {
             shmem[i] = val;
         }
@@ -97,7 +99,7 @@ __global__ void generalLayerNorm(const T* input, const T* gamma, const T* beta, 
         }
     }
 
-    if (USE_DIFF_OF_SQUARES)
+    if (USE_DIFF_OF_SQUARES)  // 这里运行
     {
         float packed[2] = {local_sum, local_var_sum};
         blockReduceSumV2<float, 2>(packed);
@@ -108,12 +110,12 @@ __global__ void generalLayerNorm(const T* input, const T* gamma, const T* beta, 
     {
         mean = blockReduceSum(local_sum);
     }
-
+    printf("[!]%d\t%f\n",threadIdx.x,mean);
     if (threadIdx.x == 0)
     {
         mean = mean / hidden_dim;
         s_mean = mean;
-        if (USE_DIFF_OF_SQUARES)
+        if (USE_DIFF_OF_SQUARES)  // 这里运行
         {
             variance = (variance / hidden_dim) - (mean * mean); // Var[x] = E[x²] - E[x]²
             s_variance = rsqrtf(variance + eps);
@@ -121,7 +123,7 @@ __global__ void generalLayerNorm(const T* input, const T* gamma, const T* beta, 
     }
     __syncthreads();
 
-    if (!USE_DIFF_OF_SQUARES)
+    if (!USE_DIFF_OF_SQUARES)  // 这里不运行
     {
         for (int i = tidx; i < n_elems; i += blockDim.x)
         {
@@ -138,8 +140,8 @@ __global__ void generalLayerNorm(const T* input, const T* gamma, const T* beta, 
         __syncthreads();
     }
 
-    const bool with_per_token_scaling = scale_orig_quant_per_token != nullptr;
-    const bool with_per_tensor_scaling = scale_orig_quant_per_tensor != nullptr;
+    const bool with_per_token_scaling = scale_orig_quant_per_token != nullptr;  // False
+    const bool with_per_tensor_scaling = scale_orig_quant_per_tensor != nullptr;  // False
     const bool with_beta = beta != nullptr;
     const float_packed_t scale_orig_quant
         = cuda_cast<float_packed_t>(with_per_tensor_scaling ? *scale_orig_quant_per_tensor : 0.0f);
@@ -151,7 +153,7 @@ __global__ void generalLayerNorm(const T* input, const T* gamma, const T* beta, 
         const float_packed_t val_f = cuda_cast<float_packed_t>(use_shmem ? shmem[i] : input[index]);
         const T val = cuda_cast<T>(compute_layernorm(val_f, s_mean, s_variance, gamma, beta, i));
 
-        if (with_per_token_scaling)
+        if (with_per_token_scaling)  // 不运行
         {
             amax = cuda_max(cuda_max<T_scalar, T>(cuda_abs(val)), amax);
             if (use_shmem)
@@ -159,7 +161,7 @@ __global__ void generalLayerNorm(const T* input, const T* gamma, const T* beta, 
                 shmem[i] = val;
             }
         }
-        else if (with_per_tensor_scaling)
+        else if (with_per_tensor_scaling)  // 不运行
         {
             reinterpret_cast<int8_packed_t*>(normed_output_quant)[index]
                 = cuda_cast<int8_packed_t>(cuda_cast<float_packed_t>(val) * scale_orig_quant);
@@ -170,7 +172,7 @@ __global__ void generalLayerNorm(const T* input, const T* gamma, const T* beta, 
         }
     }
 
-    if (with_per_token_scaling)
+    if (with_per_token_scaling)  // 不运行
     {
         float abs_max_f = blockAllReduceMax(cuda_cast<float>(amax));
         const float dynamic_per_token_scale = 127.f / abs_max_f;
@@ -197,10 +199,10 @@ template <bool USE_DIFF_OF_SQUARES, typename T>
 void dispatch_layernorm_type_square_method(const T* input, const T* gamma, const T* beta, T* normed_output,
     const float eps, int tokens, int hidden_dim, const float* scale_orig_quant_per_tensor,
     float* scale_orig_quant_per_token, int8_t* normed_output_quant, const dim3 grid, const dim3 block,
-    const size_t shmem_size, cudaStream_t stream)
+    const size_t shmem_size, cudaStream_t stream)  // grid = 12 block = 1024
 {
     bool use_shmem = true;
-    if (shmem_size >= (48 << 10))
+    if (shmem_size >= (48 << 10))  // 这里不运行
     {
         cudaError_t ret = cudaFuncSetAttribute(
             generalLayerNorm<T, USE_DIFF_OF_SQUARES>, cudaFuncAttributeMaxDynamicSharedMemorySize, shmem_size);
@@ -216,8 +218,9 @@ void dispatch_layernorm_type(const T* input, const T* gamma, const T* beta, T* n
     int8_t* normed_output_quant, const dim3 grid, const dim3 block, const size_t shmem_size, cudaStream_t stream,
     bool use_diff_of_squares)
 {
-    if (use_diff_of_squares)
-    {
+    if (use_diff_of_squares)  // 运行这里
+    {   
+        // printf("True");
         dispatch_layernorm_type_square_method<true>(input, gamma, beta, normed_output, eps, tokens, hidden_dim,
             scale_orig_quant_per_tensor, scale_orig_quant_per_token, normed_output_quant, grid, block, shmem_size,
             stream);
@@ -249,11 +252,11 @@ void invokeGeneralLayerNorm(T* out, const T* input, const T* gamma, const T* bet
 #endif
         );
 
-    if (use_vec_type)
+    if (use_vec_type)  // 这里运行
     {
         using Tp = typename packed_as<T, vec_size>::type;
         dispatch_layernorm_type(reinterpret_cast<const Tp*>(input), reinterpret_cast<const Tp*>(gamma),
-            reinterpret_cast<const Tp*>(beta), reinterpret_cast<Tp*>(out), eps, tokens, hidden_dim, scale,
+            reinterpret_cast<const Tp*>(beta), reinterpret_cast<Tp*>(out), eps, tokens, hidden_dim, scale,  //tokens = 12 hidden_dim = 1024
             dynamic_scale, normed_output_quant, grid, block, shmem_size, stream, use_diff_of_squares);
     }
     else

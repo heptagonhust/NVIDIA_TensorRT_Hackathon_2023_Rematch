@@ -176,7 +176,7 @@ class LLaMAModel(Module):
         hidden_states = self.ln_f(hidden_states.data)
         # register as model output
         # ------------------------------------------------------
-        self.register_network_output("hidden_states",hidden_states)
+        # self.register_network_output("hidden_states",hidden_states)
         # ------------------------------------------------------
         if use_cache:
             return (hidden_states, tuple(presents))

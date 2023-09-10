@@ -88,12 +88,11 @@ int LayernormPlugin::enqueue(const nvinfer1::PluginTensorDesc* inputDesc, const 
     //     output [M(*), N]
 
     int m = 1;
-    for (int i = 0; i < inputDesc[0].dims.nbDims - 1; ++i)
+    for (int i = 0; i < inputDesc[0].dims.nbDims - 1; ++i)  // inputDesc[0].dims.nbDims = 3
     {
-        printf("%d\t",inputDesc[0].dims.nbDims);
-        printf("%d\t",inputDesc[0].dims.d[i]);
-        printf("\n");
-        m *= inputDesc[0].dims.d[i];  // 
+        // printf("%d\t",inputDesc[0].dims.nbDims);
+        // printf("%d\t",inputDesc[0].dims.d[i]);  // inputDesc[0].dims.d[0] = 1  inputDesc[0].dims.d[1] = 12或者1
+        m *= inputDesc[0].dims.d[i];  // 这个地方应该是把前两维相乘
     }
     const int n = inputDesc[1].dims.d[0];  // 1024
 
@@ -121,6 +120,7 @@ int LayernormPlugin::enqueue(const nvinfer1::PluginTensorDesc* inputDesc, const 
         const __nv_bfloat16* bias = reinterpret_cast<const __nv_bfloat16*>(inputs[2]);
         __nv_bfloat16* output = reinterpret_cast<__nv_bfloat16*>(outputs[0]);
         invokeGeneralLayerNorm(output, input, weight, bias, mEps, m, n, stream, mUseDiffOfSquares);
+    } 
 #endif
 
     return 0;
