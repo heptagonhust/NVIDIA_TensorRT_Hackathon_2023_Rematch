@@ -7,7 +7,7 @@
 
 时间：
 
-```json
+```
 TensorRT-LLM (total latency: 67.72877144813538 sec)
 ```
 
@@ -18,7 +18,7 @@ TensorRT-LLM (total latency: 67.72877144813538 sec)
 
 我们使用的编译指令：
 
-```json
+```
 pip install -e .
 ./scripts/build_wheel.py --trt_root --clean /usr/local/TensorRT-9.0.0.2
 ```
@@ -27,7 +27,7 @@ pip install -e .
 
 在/root/NVIDIA_TensorRT_Hackathon_2023_Rematch/tensorrt_llm_july-release-v1/examples/llama 下运行
 
-```json
+```
 python3 build.py --model_dir ./tmp/llama/7B/ \
                     --dtype float16 \
                     --use_gpt_attention_plugin float16 \
@@ -38,7 +38,7 @@ python3 build.py --model_dir ./tmp/llama/7B/ \
 
 编译 engine 后，运行 run.py 指令：
 
-```json
+```
 python3 run.py --max_output_len=50 \
                --tokenizer_dir ./tmp/llama/7B/ \
                --engine_dir=./tmp/llama/7B/trt_engines/fp16/1-gpu/
@@ -46,7 +46,7 @@ python3 run.py --max_output_len=50 \
 
 运行 summarize.py 指令：
 
-```json
+```
 python summarize.py  --test_trt_llm \
                      --hf_model_location ./tmp/llama/7B/   \
                      --data_type fp16  \
@@ -63,7 +63,7 @@ python summarize.py  --test_trt_llm \
 
 在看 llama 的代码中发现，rmsnorm 部分只有简单的类似 pytorch 的推理实现，如下所示：
 
-```json
+```
 with precision("float32"):
     varx = pow(input, 2.0)  # (-1, -1, 4096)
     varx = varx.mean(dim, keepdim=True)  # (-1, -1, 1)
@@ -81,7 +81,7 @@ if weight is not None:
 
 - 在 build.py 中编写接口，从而可以使用不同数据类型的 rmsnorm plugin
 
-```json
+```
 if args.use_RMSnorm_plugin:
    print(args.use_RMSnorm_plugin)
    network.plugin_config.set_RMSnorm_plugin(dtype=args.use_RMSnorm_plugin)
@@ -89,7 +89,7 @@ if args.use_RMSnorm_plugin:
 
 - 在 plugin.py 中设置标志位，使得下一步中可以运行 plugin 部分
 
-```json
+```
 def set_RMSnorm_plugin(self, dtype='float32'):
         self.RMSnorm_plugin = dtype
         return self
@@ -97,7 +97,7 @@ def set_RMSnorm_plugin(self, dtype='float32'):
 
 - 在 functional.py 中替换原始 rmsnorm 的写法，使得 rms_norm 函数调用对应的 rmsnorm plugin
 
-```json
+```
 else:  # 加标志位运行这里
         plg_creator = trt.get_plugin_registry().get_plugin_creator('Rmsnorm', '1', TRT_LLM_PLUGIN_NAMESPACE)
         assert plg_creator is not None
@@ -123,7 +123,7 @@ else:  # 加标志位运行这里
 
 - 在 cpp/tensorrt_llm/plugins/rmsnormPlugin 文件夹下创建 cpp 文件，创建 RmsnormPlugin 类，主要是 enquene 函数编写代码
 
-```json
+```
 int m = 1;
     for (int i = 0; i < inputDesc[0].dims.nbDims - 1; ++i)
     {
@@ -148,7 +148,7 @@ int m = 1;
 
 - 在 cpp/tensorrt_llm/kernels/创建 cuda 算子 rmsnormKernels.cu 文件，编写算子代码，核函数如下所示：
 
-```json
+```
 template <typename T>
 __global__ void generalRmsNorm(const T* input, const T* gamma, T* normed_output, const float eps,
     int tokens, int hidden_dim, const float* scale_orig_quant_per_tensor, float* scale_orig_quant_per_token,
@@ -277,7 +277,7 @@ __global__ void generalRmsNorm(const T* input, const T* gamma, T* normed_output,
 
 在 tensorrt-LLM 中运行 build.py 和 summarize.py 后得到的精度如下所示：
 
-```json
+```
 [08/31/2023-11:12:48] [TRT-LLM] [I] TensorRT-LLM beam 0 result
 [08/31/2023-11:12:48] [TRT-LLM] [I]   rouge1 : 20.762954367545632
 [08/31/2023-11:12:48] [TRT-LLM] [I]   rouge2 : 5.683615121132041
@@ -287,7 +287,7 @@ __global__ void generalRmsNorm(const T* input, const T* gamma, T* normed_output,
 
 在加入 rmsnorm plugin 后精度如下所示：
 
-```json
+```
 [09/19/2023-13:11:32] [TRT-LLM] [I] TensorRT-LLM beam 0 result
 [09/19/2023-13:11:32] [TRT-LLM] [I]   rouge1 : 20.29824254208154
 [09/19/2023-13:11:32] [TRT-LLM] [I]   rouge2 : 5.683615121132041
@@ -299,13 +299,13 @@ __global__ void generalRmsNorm(const T* input, const T* gamma, T* normed_output,
 
 在 tensorrt-LLM 中运行 build.py 和 summarize.py 后得到的时间如下所示：
 
-```json
+```
 [09/19/2023-13:11:32] [TRT-LLM] [I] TensorRT-LLM (total latency: 67.993452693425 sec)
 ```
 
 在加入 rmsnorm plugin 后时间如下所示：
 
-```json
+```
 [09/19/2023-13:11:32] [TRT-LLM] [I] TensorRT-LLM (total latency: 67.611492395401 sec)
 ```
 
@@ -319,7 +319,7 @@ __global__ void generalRmsNorm(const T* input, const T* gamma, T* normed_output,
 
 得到输出如下
 
-```bash
+```
 root@6375fe14b223:~/workspace/tensorrt_llm_july-release-v1/examples/gpt# python3 run.py --max_output_len=8
 
 Input: Born in north-east France, Soyer trained as a
@@ -334,7 +334,7 @@ Output:  chef and eventually became a chef at a
 
 得到输出如下
 
-```bash
+```
 root@6375fe14b223:~/workspace/tensorrt_llm_july-release-v1/examples/gpt# python3 summarize.py --engine_dir trt_engine/gpt2/fp16/1-gpu                      --test_hf                      --batch_size 1                      --test_trt_llm                      --hf_model_location=gpt2                      --check_accuracy                      --tensorrt_llm_rouge1_threshold=14
 
 [08/18/2023-15:32:26] [TRT-LLM] [I] ---------------------------------------------------------
