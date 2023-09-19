@@ -200,7 +200,7 @@ def parse_arguments():
     # force use the plugin for now with the correct data type.
     args.use_gpt_attention_plugin = args.dtype
     if args.model_dir is not None:
-        hf_config = LlamaConfig.from_pretrained(args.model_dir)
+        hf_config = LlamaConfig.from_pretrained(args.model_dir)  ## huggingface checkpoint
         args.inter_size = hf_config.intermediate_size  # override the inter_size for LLaMA
         args.n_embd = hf_config.hidden_size
         args.n_head = hf_config.num_attention_heads
@@ -244,7 +244,7 @@ def build_rank_engine(builder: Builder,
     kv_dtype = str_dtype_to_trt(args.dtype)
 
     # Initialize Module
-    tensorrt_llm_llama = tensorrt_llm.models.LLaMAForCausalLM(
+    tensorrt_llm_llama = tensorrt_llm.models.LLaMAForCausalLM( ## huggingface checkpoint
         num_layers=args.n_layer,
         num_heads=args.n_head,
         hidden_size=args.n_embd,
@@ -274,7 +274,7 @@ def build_rank_engine(builder: Builder,
     elif args.model_dir is not None:
         logger.info(f'Loading HF LLaMA ... from {args.model_dir}')
         tik = time.time()
-        hf_llama = LlamaForCausalLM.from_pretrained(
+        hf_llama = LlamaForCausalLM.from_pretrained( ## huggingface checkpoint
             args.model_dir,
             device_map={
                 "model": "cpu",
@@ -306,6 +306,7 @@ def build_rank_engine(builder: Builder,
             dtype='float16')
     # ----------------------------------------------------------------
     if args.use_RMSnorm_plugin:
+        print(args.use_RMSnorm_plugin)
         network.plugin_config.set_RMSnorm_plugin(dtype=args.use_RMSnorm_plugin)
     # ----------------------------------------------------------------
     if args.world_size > 1:
