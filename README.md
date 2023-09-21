@@ -7,7 +7,7 @@
 
 时间：
 
-```json
+```
 TensorRT-LLM (total latency: 67.72877144813538 sec)
 ```
 
@@ -17,7 +17,7 @@ TensorRT-LLM (total latency: 67.72877144813538 sec)
 
 我们使用的编译指令：
 
-```json
+```
 pip install -e .
 ./scripts/build_wheel.py --trt_root --clean /usr/local/TensorRT-9.0.0.2
 ```
@@ -26,7 +26,7 @@ pip install -e .
 
 在/root/NVIDIA_TensorRT_Hackathon_2023_Rematch/tensorrt_llm_july-release-v1/examples/llama 下运行
 
-```json
+```
 python3 build.py --model_dir ./tmp/llama/7B/ \
                     --dtype float16 \
                     --use_gpt_attention_plugin float16 \
@@ -37,7 +37,7 @@ python3 build.py --model_dir ./tmp/llama/7B/ \
 
 编译 engine 后，运行 run.py 指令：
 
-```json
+```
 python3 run.py --max_output_len=50 \
                --tokenizer_dir ./tmp/llama/7B/ \
                --engine_dir=./tmp/llama/7B/trt_engines/fp16/1-gpu/
@@ -45,7 +45,8 @@ python3 run.py --max_output_len=50 \
 
 运行 summarize.py 指令：
 
-```json
+```
+
 python summarize.py  --test_trt_llm \
                      --hf_model_location ./tmp/llama/7B/   \
                      --data_type fp16  \
@@ -78,7 +79,7 @@ python summarize.py  --test_trt_llm \
 
 在看 llama 的代码中发现，rmsnorm 部分只有简单的类似 pytorch 的推理实现，如下所示：
 
-```json
+```
 with precision("float32"):
     varx = pow(input, 2.0)  # (-1, -1, 4096)
     varx = varx.mean(dim, keepdim=True)  # (-1, -1, 1)
@@ -96,7 +97,7 @@ if weight is not None:
 
 - 在 build.py 中编写接口，从而可以使用不同数据类型的 rmsnorm plugin
 
-```json
+```
 if args.use_RMSnorm_plugin:
    print(args.use_RMSnorm_plugin)
    network.plugin_config.set_RMSnorm_plugin(dtype=args.use_RMSnorm_plugin)
@@ -104,7 +105,7 @@ if args.use_RMSnorm_plugin:
 
 - 在 plugin.py 中设置标志位，使得下一步中可以运行 plugin 部分
 
-```json
+```
 def set_RMSnorm_plugin(self, dtype='float32'):
         self.RMSnorm_plugin = dtype
         return self
@@ -112,7 +113,7 @@ def set_RMSnorm_plugin(self, dtype='float32'):
 
 - 在 functional.py 中替换原始 rmsnorm 的写法，使得 rms_norm 函数调用对应的 rmsnorm plugin
 
-```json
+```
 else:  # 加标志位运行这里
         plg_creator = trt.get_plugin_registry().get_plugin_creator('Rmsnorm', '1', TRT_LLM_PLUGIN_NAMESPACE)
         assert plg_creator is not None
@@ -123,7 +124,7 @@ else:  # 加标志位运行这里
         pf_type = trt.PluginField("type_id", np.array([int(str_dtype_to_trt(p_dtype))], np.int32),trt.PluginFieldType.INT32)
         pfc = trt.PluginFieldCollection([eps, pf_type])
         rmsnorm_plug = plg_creator.create_plugin("rmsnorm", pfc)
-        
+
         if weight is None:
             weight = constant(np.ones(normalized_shape, dtype=str_dtype_to_np(p_dtype)))
 
@@ -138,7 +139,7 @@ else:  # 加标志位运行这里
 
 - 在 cpp/tensorrt_llm/plugins/rmsnormPlugin 文件夹下创建 cpp 文件，创建 RmsnormPlugin 类，主要是 enquene 函数编写代码
 
-```json
+```
 int m = 1;
     for (int i = 0; i < inputDesc[0].dims.nbDims - 1; ++i)
     {
@@ -163,7 +164,7 @@ int m = 1;
 
 - 在 cpp/tensorrt_llm/kernels/创建 cuda 算子 rmsnormKernels.cu 文件，编写算子代码，核函数如下所示：
 
-```json
+```
 template <typename T>
 __global__ void generalRmsNorm(const T* input, const T* gamma, T* normed_output, const float eps,
     int tokens, int hidden_dim, const float* scale_orig_quant_per_tensor, float* scale_orig_quant_per_token,
@@ -269,7 +270,7 @@ __global__ void generalRmsNorm(const T* input, const T* gamma, T* normed_output,
 
 并且，我们还完成了 plugin 的 test 功能，从而能单独测试 plugin 的精度，以验证 plugin 编写的准确性，测试代码在 tensorrt_llm_july-release-v1/tests/functional/test_rms_norm.py 下面，测试代码如下
 
-```json
+```
 import unittest
 
 import numpy as np
@@ -389,7 +390,7 @@ if __name__ == "__main__":
 
 在 tensorrt-LLM 中运行 build.py 和 summarize.py 后得到的精度如下所示：
 
-```json
+```
 [08/31/2023-11:12:48] [TRT-LLM] [I] TensorRT-LLM beam 0 result
 [08/31/2023-11:12:48] [TRT-LLM] [I]   rouge1 : 20.762954367545632
 [08/31/2023-11:12:48] [TRT-LLM] [I]   rouge2 : 5.683615121132041
@@ -399,7 +400,7 @@ if __name__ == "__main__":
 
 在加入 rmsnorm plugin 后精度如下所示：
 
-```json
+```
 [09/19/2023-13:11:32] [TRT-LLM] [I] TensorRT-LLM beam 0 result
 [09/19/2023-13:11:32] [TRT-LLM] [I]   rouge1 : 20.29824254208154
 [09/19/2023-13:11:32] [TRT-LLM] [I]   rouge2 : 5.683615121132041
@@ -408,6 +409,7 @@ if __name__ == "__main__":
 ```
 
 **性能**
+
 
 - 用原始 functional.py 的 rmsnorm 进行 profile，计算时间为 9.5us 左右，如下所示：
 
@@ -419,99 +421,15 @@ if __name__ == "__main__":
 
 - 在 tensorrt-LLM 中运行 build.py 和 summarize.py 后得到的时间如下所示：
 
-```json
+```
 [09/19/2023-13:11:32] [TRT-LLM] [I] TensorRT-LLM (total latency: 67.993452693425 sec)
 ```
 
 在加入 rmsnorm plugin 后时间如下所示：
 
-```json
+```
 [09/19/2023-13:11:32] [TRT-LLM] [I] TensorRT-LLM (total latency: 67.611492395401 sec)
 ```
-
-### ~~Bug 报告~~
-
-#### ~~新增插件时采用增量编译导致编译失败~~
-
-~~以下是我们找到的一个文档 bug。~~
-
-~~根目录 README.md 文件的~~~~### Build from Source~~~~ 板块提到，项目在 build 时默认采用 incremental builds，但我们在新增 plugin 的场景下，默认的 build 命令会导致编译失败，必须采用 ~~~~--clean~~~~ 参数。~~
-
-~~复现：~~
-
-~~登录~~~~云主机~~~~并运行命令~~
-
-- ~~docker run -itd --net=host --gpus all --name trt_bug ~~~~registry.cn-hangzhou.aliyuncs.com/trt-hackathon/trt-hackathon:final_v1~~~~ /bin/bash~~
-
-~~基于镜像 ~~~~registry.cn-hangzhou.aliyuncs.com/trt-hackathon/trt-hackathon:final_v1~~~~ 生成一个全新的容器~~
-
-~~进入容器，在 ~/workspace/tensorrt_llm_july-release-v1/ 路径运行命令~~
-
-- ~~./scripts/build_wheel.py --trt_root /usr/local/TensorRT-9.0.0.2 ~~
-- ~~pip~~~~ ~~~~install~~~~ ./build/tensorrt_llm*.whl~~
-
-~~此时无报错~~
-
-~~接着分别新增或修改如下 plugin 代码，此处以我们实现的 rmsnormPlugin 为例。~~
-
-1. ~~在 /cpp/tensorrt_llm/kernels/ 新增文件 ~~~~rmsnormKernels.cu~~~~ 和 ~~~~rmsnormKernels.h~~~~ 并完善代码~~
-2. ~~在 /cpp/tensorrt_llm/plugins/ 新建目录 "rmsnormPlugin"，并于其中新增文件 ~~~~rmsnormPlugin.cpp~~~~ ~~~~rmsnormPlugin.h~~~~和 ~~~~CMakeLists.txt~~~~ 并完善代码，其中 CMakeLists.txt 的内容与 layernormPlugin 目录下的 CMakeLists 相同。~~
-3. ~~在 /cpp/tensorrt_llm/plugins/CMakeLists.txt  31 行的 set() 语句新增 "rmsnormPlugin"~~
-4. ~~在 /cpp/tensorrt_llm/plugins/api/inferPlugin.cpp 新增头文件 "tensorrt_llm/plugins/rmsnormPlugin/rmsnormPlugin.h"~~
-5. **注释掉 /cpp/tensorrt_llm/kernels/rmsnormKernels.cu 中 invokeGeneralRmsNorm() 函数的内部代码，即，令其为空函数**
-
-~~代码修改完成后，运行命令~~
-
-- ~~./scripts/build_wheel.py --trt_root /usr/local/TensorRT-9.0.0.2 ~~
-
-~~此时 build 失败，弹出报错信息如下~~
-
-```bash
-~~[  2%] Built target layers_src~~
-~~[  6%] Built target common_src~~
-~~[ 10%] Built target runtime_src~~
-~~make[3]: *** No rule to make target '/root/workspace/tensorrt_llm_july-release-v1/cpp/tensorrt_llm/kernels/rmsnormPlugin.cu', needed by 'tensorrt_llm/kernels/CMakeFiles/kernels_src.dir/rmsnormPlugin.cu.o'.  Stop.~~
-~~make[2]: *** [CMakeFiles/Makefile2:712: tensorrt_llm/kernels/CMakeFiles/kernels_src.dir/all] Error 2~~
-~~make[1]: *** [CMakeFiles/Makefile2:638: tensorrt_llm/CMakeFiles/tensorrt_llm.dir/rule] Error 2~~
-~~make: *** [Makefile:179: tensorrt_llm] Error 2~~
-~~Traceback (most recent call last):~~
-~~  File "./scripts/build_wheel.py", line 168, in <module>~~
-~~    main(**vars(args))~~
-~~  File "./scripts/build_wheel.py", line 96, in main~~
-~~    build_run(~~
-~~  File "/usr/lib/python3.8/subprocess.py", line 516, in run~~
-~~    raise CalledProcessError(retcode, process.args,~~
-~~subprocess.CalledProcessError: Command 'make -j16 tensorrt_llm tensorrt_llm_static nvinfer_plugin th_common' returned non-zero exit status 2.~~
-```
-
-```json
-~~[ 91%] Built target tensorrt_llm_static~~
-~~[ 91%] Building CXX object tensorrt_llm/plugins/CMakeFiles/nvinfer_plugin.dir/rmsnormPlugin/rmsnormPlugin.cpp.o~~
-~~[ 91%] Linking CXX shared library libnvinfer_plugin.so~~
-~~/usr/bin/ld: CMakeFiles/nvinfer_plugin.dir/rmsnormPlugin/rmsnormPlugin.cpp.o: in function `nvinfer1::plugin::RmsnormPlugin::enqueue(nvinfer1::PluginTensorDesc const*, nvinfer1::PluginTensorDesc const*, void const* const*, void* const*, void*, CUstream_st*)':~~
-~~rmsnormPlugin.cpp:(.text+0x1c7): undefined reference to `void tensorrt_llm::kernels::invokeGeneralRmsNorm<float>(float*, float const*, float const*, float, int, int, CUstream_st*, float const*, float*, signed char*)'~~
-~~/usr/bin/ld: rmsnormPlugin.cpp:(.text+0x1fe): undefined reference to `void tensorrt_llm::kernels::invokeGeneralRmsNorm<__nv_bfloat16>(__nv_bfloat16*, __nv_bfloat16 const*, __nv_bfloat16 const*, float, int, int, CUstream_st*, float const*, float*, signed char*)'~~
-~~/usr/bin/ld: rmsnormPlugin.cpp:(.text+0x23f): undefined reference to `void tensorrt_llm::kernels::invokeGeneralRmsNorm<__half>(__half*, __half const*, __half const*, float, int, int, CUstream_st*, float const*, float*, signed char*)'~~
-~~collect2: error: ld returned 1 exit status~~
-~~make[3]: *** [tensorrt_llm/plugins/CMakeFiles/nvinfer_plugin.dir/build.make:431: tensorrt_llm/plugins/libnvinfer_plugin.so.9.0.0] Error 1~~
-~~make[2]: *** [CMakeFiles/Makefile2:851: tensorrt_llm/plugins/CMakeFiles/nvinfer_plugin.dir/all] Error 2~~
-~~make[1]: *** [CMakeFiles/Makefile2:858: tensorrt_llm/plugins/CMakeFiles/nvinfer_plugin.dir/rule] Error 2~~
-~~make: *** [Makefile:283: nvinfer_plugin] Error 2~~
-~~Traceback (most recent call last):~~
-~~  File "./scripts/build_wheel.py", line 168, in <module>~~
-~~    main(**vars(args))~~
-~~  File "./scripts/build_wheel.py", line 96, in main~~
-~~    build_run(~~
-~~  File "/usr/lib/python3.8/subprocess.py", line 516, in run~~
-~~    raise CalledProcessError(retcode, process.args,~~
-~~subprocess.CalledProcessError: Command 'make -j16 tensorrt_llm tensorrt_llm_static nvinfer_plugin th_common' returned non-zero exit status 2.~~
-```
-
-~~再运行命令（此时在命令中添加 --clean 参数）~~
-
-- ~~./scripts/build_wheel.py --clean --trt_root /usr/local/TensorRT-9.0.0.2 ~~
-
-~~运行成功~~
 
 ### 送分题答案
 
@@ -523,7 +441,7 @@ if __name__ == "__main__":
 
 得到输出如下
 
-```bash
+```
 root@6375fe14b223:~/workspace/tensorrt_llm_july-release-v1/examples/gpt# python3 run.py --max_output_len=8
 
 Input: Born in north-east France, Soyer trained as a
@@ -538,7 +456,7 @@ Output:  chef and eventually became a chef at a
 
 得到输出如下
 
-```bash
+```
 root@6375fe14b223:~/workspace/tensorrt_llm_july-release-v1/examples/gpt# python3 summarize.py --engine_dir trt_engine/gpt2/fp16/1-gpu                      --test_hf                      --batch_size 1                      --test_trt_llm                      --hf_model_location=gpt2                      --check_accuracy                      --tensorrt_llm_rouge1_threshold=14
 
 [08/18/2023-15:32:26] [TRT-LLM] [I] ---------------------------------------------------------
