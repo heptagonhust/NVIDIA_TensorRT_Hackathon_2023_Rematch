@@ -13,7 +13,6 @@ TensorRT-LLM (total latency: 67.72877144813538 sec)
 
 精度：
 
-- 优化效果（例如给出精度和加速比），简单给出关键的数字即可，在这里不必详细展开
 - 在 Docker 里面代码编译、运行步骤：
 
 我们使用的编译指令：
@@ -47,6 +46,7 @@ python3 run.py --max_output_len=50 \
 运行 summarize.py 指令：
 
 ```
+
 python summarize.py  --test_trt_llm \
                      --hf_model_location ./tmp/llama/7B/   \
                      --data_type fp16  \
@@ -55,9 +55,25 @@ python summarize.py  --test_trt_llm \
 
 ### 主要开发工作
 
+- 主要开发 rmsnorm 的 plugin，以供 tensorrt-LLM 推理的时候使用更高效的 cuda 算子，从而提高推理速度。
+
 #### 开发工作的难点
 
-- 主要开发 rmsnorm 的 plugin，难点在于 cuda 算子代码的编写和 plugin 嵌入 build.py 的整个流程
+- 熟悉 tensorrt-LLM，tensorrt-LLM 的 llama 模型通过 build.py 进行 engine 文件的构建，通过 run.py 完成引擎推理，通过 summarize.py 完成模型的评估。（阿里云的网很不好，模型文件下载很容易寄，用了科学上网才解决）
+- 熟悉 plugin 编写的整个流程，tensorrt-LLM 在 build.py 中通过标志位的方式来选择是否使用 plugin，在.cpp 中编写 plugin 的接口，在.cu 中编写关键的计算核函数
+- 熟悉使用 Nsight profile 工具，查看代码计算耗时是推理加速工作重要的一步，我们小组在考虑如何加速 llama 模型的时候（由于 tensorrt-LLM 已经搭建好了 llama 模型，并且写了一些 plugin 和量化方案，好多常见优化的路都被堵死了......），用 Nsight 对各个子模块进行 profile，最后发现 rmsnorm 是一个优化点，因此定下写 rmsnorm plugin 的方案
+- CUDA 核函数的编写，在 rmsnorm 中会涉及到多维的加法、乘法操作，会用到多线程维度计算和规约的并行方法，由于第一次写 CUDA 算子（在 block 中最多只有 1024 个线程的基础知识都不知道），所以还是遇到了很多问题，也学到了很多有关 CUDA 的基础知识。
+- 调试问题，关于如何 Debug python 和 C++ 并存的项目也缺乏经验，我们采用 CUDA-GDB 调试 CUDA 代码，用 tensorrt-LLM 自带的 marked_output 来标记层的输出，从而来调试算子的代码
+- 精度问题，由于 rmsnorm 的精度会影响到最后的输出，需要用 float32 的精度进行计算。一开始没有注意到这点，导致精度下降，输出存在问题。并且由于在 model 中调试 plugin 存在耦合关系，很难定位具体的问题，我们写了 test_rms_norm.py 来进行单独 plugin 模块进行测试，从而保证 plugin 的精度。
+- 编译问题，熟悉整个 tensorrt-LLM 的编译流程，用 pip install -e . 来完成 tensorrt-LLM 的模块搭建。运行./scripts/build_wheel.py --trt_root /usr/local/TensorRT-9.0.0.2 来进行整体项目的编译。在这个过程中，遇到了一个卡我们几天的 bug。因为增量式编译可以只编译修改后的文件，大大减少编译时间，然后有一个函数一直提示未定义，但明明是定义好的，IDE 也可以跳转。后来抱着侥幸心理--clean 重新编译就好了，就后面都正常了，很奇怪。后面也复现不出来这个编译小 bug，就没有提交 bug 了。
+
+#### 开发工作的亮点
+
+- 完成 rmsnorm 的 plugin，这样有模型用到 rmsnorm 算子都可以调用，是一个通用的 plugin。
+- 在 llama 模型构建 engine 中成功调用 rmsnorm plugin，从而提高 llama 模型的推理速度。
+- CUDA 算子中针对维度进行并行化，针对加法求和采用规约的方法，采用共享内存来管理数据，提高 rmsnorm 算子的推理速度
+- 完成 plugin 的 test 部分，从而可以单独测试 rmsnorm plugin 模块，支持 float16 和 float32，float16 精度在 2e-2 之内, float32 精度在 2e-6 之内
+- 用 Nsight 工具对 rmsnorm plugin 和原始 rmsnorm 模块进行 profile，从而验证 rmsnorm plugin 加速的有效性。
 
 ### 开发与优化过程
 
@@ -252,6 +268,103 @@ __global__ void generalRmsNorm(const T* input, const T* gamma, T* normed_output,
 
 至此，rmsnorm plugin 完成。
 
+并且，我们还完成了 plugin 的 test 功能，从而能单独测试 plugin 的精度，以验证 plugin 编写的准确性，测试代码在 tensorrt_llm_july-release-v1/tests/functional/test_rms_norm.py 下面，测试代码如下
+
+```
+import unittest
+
+import numpy as np
+import torch
+from parameterized import parameterized
+from polygraphy.backend.trt import CreateConfig, EngineFromNetwork, TrtRunner
+
+import tensorrt_llm
+from tensorrt_llm import Parameter, Tensor
+from tensorrt_llm._utils import torch_to_numpy
+class RMSNorm(torch.nn.Module):
+    def __init__(self, dim: int, eps: float = 1e-6):
+        super().__init__()
+        self.eps = eps
+        self.weight = torch.randn((dim), dtype=torch.float32, device="cuda")
+
+    def _norm(self, x):
+        return x * torch.rsqrt(x.pow(2).mean(-1, keepdim=True) + self.eps)
+
+    def forward(self, x):
+        output = self._norm(x.float()).type_as(x)
+        return output * self.weight
+
+class TestFunctional(unittest.TestCase):
+
+    def setUp(self):
+        tensorrt_llm.logger.set_level('error')
+        torch.manual_seed(42)
+
+    @parameterized.expand([['float16'], ['float32'], ['bfloat16']])
+    def test_layer_norm_plugin(self, dtype):
+        # test data
+        hidden_size = 4096
+        x_data = torch.randn((8, 128, hidden_size),
+                             dtype=torch.float64,
+                             device="cuda")  # torch.Size([8, 128, 1024])
+        weight = torch.randn((hidden_size), dtype=torch.float64, device="cuda")
+        bias = torch.randn((hidden_size), dtype=torch.float64, device="cuda")
+        eps = 1e-5
+        m = RMSNorm(hidden_size, eps)
+        # m = torch.nn.LayerNorm(hidden_size,
+        #                        eps=eps,
+        #                        dtype=torch.float64,
+        #                        device="cuda")
+        # m.weight = torch.nn.Parameter(weight)
+        # m.bias = torch.nn.Parameter(bias)
+
+        # pytorch run
+        with torch.no_grad():
+            ref = m(x_data)
+
+        m.to(tensorrt_llm._utils.str_dtype_to_torch(dtype))
+        x_data = x_data.to(tensorrt_llm._utils.str_dtype_to_torch(dtype))
+
+        gamma_data = m.weight.detach().cpu()
+        # beta_data = m.bias.detach().cpu()
+
+        # construct trt network
+        builder = tensorrt_llm.Builder()
+        net = builder.create_network()
+        net.plugin_config.set_RMSnorm_plugin(dtype)
+        with tensorrt_llm.net_guard(net):
+            network = tensorrt_llm.default_trtnet()
+            x = Tensor(name='x',
+                       shape=x_data.shape,
+                       dtype=tensorrt_llm.str_dtype_to_trt(dtype))
+            weight = Parameter(torch_to_numpy(gamma_data.cpu())).value
+            # bias = Parameter(torch_to_numpy(beta_data.cpu())).value
+
+            output = tensorrt_llm.functional.rms_norm(x, hidden_size, weight,
+                                                         eps).trt_tensor
+            output.name = 'output'
+            network.mark_output(output)
+            output.dtype = tensorrt_llm.str_dtype_to_trt(dtype)
+
+        # trt run
+        build_engine = EngineFromNetwork(
+            (builder.trt_builder, net.trt_network),
+            config=CreateConfig(fp16=(dtype == 'float16'),
+                                bf16=(dtype == 'bfloat16')))
+        assert build_engine is not None, "Build engine failed"
+        with TrtRunner(build_engine) as runner:
+            outputs = runner.infer(feed_dict={'x': x_data.cpu()})
+
+        # compare diff
+        dtype_atol = {"float16": 2e-2, "float32": 2e-6, "bfloat16": 8e-2}
+        np.testing.assert_allclose(ref.cpu().numpy(),
+                                   outputs['output'].to(torch.float32),
+                                   atol=dtype_atol[dtype])
+        
+if __name__ == "__main__":
+    unittest.main()
+```
+
 ### 优化效果
 
 #### 云主机环境
@@ -297,7 +410,16 @@ __global__ void generalRmsNorm(const T* input, const T* gamma, T* normed_output,
 
 **性能**
 
-在 tensorrt-LLM 中运行 build.py 和 summarize.py 后得到的时间如下所示：
+
+- 用原始 functional.py 的 rmsnorm 进行 profile，计算时间为 9.5us 左右，如下所示：
+
+![](static/RhvwbCMlXoNxkmxsnV4cy1qLnrH.png)
+
+加入 rmsnorm plugin 进行 profile，计算时间约为 4.2us 左右，如下图所示：
+
+![](static/IRB6bzc2oooXy3xYTGLcpD9unAd.png)
+
+- 在 tensorrt-LLM 中运行 build.py 和 summarize.py 后得到的时间如下所示：
 
 ```
 [09/19/2023-13:11:32] [TRT-LLM] [I] TensorRT-LLM (total latency: 67.993452693425 sec)
@@ -374,4 +496,4 @@ Token indices sequence length is longer than the specified maximum sequence leng
 - 项目中生成大型文件较多，生成时间长，如何进行 Git 多人协作，如何保证大文件版本同步是一个难题
 - 初次接触 tensorrt 和 cuda，挫折很多，比如一个 block 中最多只有 1024 个线程，在实战中也确实学习到不少知识。知道该如何编写 cuda 核函数，知道整个 plugin 流程是怎么样的，对 tensorrt 的认识更加深刻了。
 - 对大语言模型的优化点有了一些了解。量化的作用，kv cache 优化这些词汇的理解更加深入了，想去尝试 AutoGPTQ 的量化导入，但由于时间来不及了，就没有完成。
-- 非常感谢导师的耐心解答，感谢 nvidia 给予了我们一次学习的机会。
+- 非常感谢导师的耐心解答，感谢 nvidia 给予了我们一次学习的机会。希望 tensorrt 被更加广泛的应用，真的是一个 Nice work！

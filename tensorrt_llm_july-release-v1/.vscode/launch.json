@@ -11,10 +11,11 @@
             "program": "${file}",
             "console": "integratedTerminal",
             "justMyCode": false,
-            "args": [                
-            "--model_dir","./c-model/gpt2/1-gpu",
-            "--use_gpt_attention_plugin",
-            "--use_layernorm_plugin"
+            "args": [
+                "--model_dir",
+                "./c-model/gpt2/1-gpu",
+                "--use_gpt_attention_plugin",
+                "--use_layernorm_plugin"
             ],
             "cwd": "/root/workspace/tensorrt_llm_july-release-v1/examples/gpt"
         },
@@ -33,7 +34,7 @@
                 "--engine_dir",
                 "./tmp/llama/7B/trt_engines/fp16/1-gpu/"
             ],
-            "cwd": "/root/workspace/tensorrt_llm_july-release-v1/examples/llama"
+            "cwd": "/root/NVIDIA_TensorRT_Hackathon_2023_Rematch/tensorrt_llm_july-release-v1/examples/llama"
         },
         {
             "name": "Python: llama_build.py",
@@ -43,14 +44,20 @@
             "console": "integratedTerminal",
             "justMyCode": false,
             "args": [
-                "--model_dir","./tmp/llama/7B/",
-                "--dtype","float16",
-                "--use_gpt_attention_plugin","float16",
-                "--use_gemm_plugin","float16",
-                "--output_dir","./tmp/llama/7B/trt_engines/fp16/1-gpu/",
-                "--use_RMSnorm_plugin","float16"
+                "--model_dir",
+                "./tmp/llama/7B/",
+                "--dtype",
+                "float16",
+                "--use_gpt_attention_plugin",
+                "float16",
+                "--use_gemm_plugin",
+                "float16",
+                "--output_dir",
+                "./tmp/llama/7B/trt_engines/fp16/1-gpu/",
+                "--use_RMSnorm_plugin",
+                "float32"
             ],
-            "cwd": "/root/workspace/tensorrt_llm_july-release-v1/examples/llama"
+            "cwd": "/root/NVIDIA_TensorRT_Hackathon_2023_Rematch/tensorrt_llm_july-release-v1/examples/llama"
         }
     ]
 }

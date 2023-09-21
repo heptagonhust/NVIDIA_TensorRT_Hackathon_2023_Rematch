@@ -93,20 +93,13 @@ __global__ void generalRmsNorm(const T* input, const T* gamma, T* normed_output,
         local_var_sum += cuda_sum<float>(val_f * val_f);
     }
 
-    // float packed[1] = {local_var_sum};
-    // blockReduceSumV2<float, 2>(packed);
-    // variance = packed[0];
     variance = blockReduceSum(local_var_sum);
 
     if (threadIdx.x == 0)
     {
-        // mean = mean / hidden_dim;
-        // s_mean = mean;
-        // if (USE_DIFF_OF_SQUARES)  // 这里运行
-        // {
         variance = (variance / hidden_dim); // Var[x] = E[x²] - E[x]²
         s_variance = rsqrtf(variance + eps);
-        // }
+
     }
     __syncthreads();
 

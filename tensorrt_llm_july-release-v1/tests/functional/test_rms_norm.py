@@ -27,7 +27,7 @@ class TestFunctional(unittest.TestCase):
         tensorrt_llm.logger.set_level('error')
         torch.manual_seed(42)
 
-    @parameterized.expand([['float16'], ['float32'], ['bfloat16']])
+    @parameterized.expand([['float16'], ['float32']])
     def test_layer_norm_plugin(self, dtype):
         # test data
         hidden_size = 4096
