@@ -135,7 +135,7 @@ else:  # 加标志位运行这里
     return y
 ```
 
-**以下部分是****C++****代码，主要是如何编写 rmsnorm 的 plugin**
+**以下部分是 C++ 代码，主要是如何编写 rmsnorm 的 plugin**
 
 - 在 cpp/tensorrt_llm/plugins/rmsnormPlugin 文件夹下创建 cpp 文件，创建 RmsnormPlugin 类，主要是 enquene 函数编写代码
 
